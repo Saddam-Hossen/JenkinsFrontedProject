@@ -2,7 +2,6 @@ pipeline {
   agent any
 
   environment {
-    // Use forward slashes for Windows compatibility
     SSH_KEY_PATH = "${WORKSPACE}\\key.pem"
     REMOTE_DIR = '/www/wwwroot/CITSNVN/itcrashcourse'
     PORT = '3084'
@@ -39,16 +38,21 @@ pipeline {
           // Write the SSH key file
           writeFile file: env.SSH_KEY_PATH, text: env.DO_SSH_KEY
           
-          // Set proper permissions (may not work perfectly on Windows)
+          // Set proper permissions using PowerShell (more reliable on Windows)
           bat """
-            icacls "${env.SSH_KEY_PATH}" /inheritance:r
-            icacls "${env.SSH_KEY_PATH}" /grant:r "%USERNAME%":(R)
-            icacls "${env.SSH_KEY_PATH}" /grant:r "SYSTEM":(R)
+            powershell -command "icacls '${env.SSH_KEY_PATH}' /reset"
+            powershell -command "icacls '${env.SSH_KEY_PATH}' /grant:r '%USERNAME%':(R)"
+            powershell -command "icacls '${env.SSH_KEY_PATH}' /grant:r 'SYSTEM':(R)"
+            powershell -command "icacls '${env.SSH_KEY_PATH}' /inheritance:r"
           """
           
-          // Add host to known_hosts
+          // Create SSH directory in user profile (not system profile)
           bat """
-            mkdir "%USERPROFILE%\\.ssh" 2>nul
+            if not exist "%USERPROFILE%\\.ssh" mkdir "%USERPROFILE%\\.ssh"
+          """
+          
+          // Add host to known_hosts with compatible KEX algorithms
+          bat """
             ssh-keyscan -H ${env.DO_HOST} >> "%USERPROFILE%\\.ssh\\known_hosts"
           """
         }
@@ -59,9 +63,14 @@ pipeline {
       steps {
         script {
           try {
+            // First test SSH connection
+            bat """
+              plink -batch -ssh -i "${env.SSH_KEY_PATH}" ${env.DO_USER}@${env.DO_HOST} "echo SSH Connection Test Successful"
+            """
+            
             // Kill existing process
             bat """
-              plink -i "${env.SSH_KEY_PATH}" -batch -ssh ${env.DO_USER}@${env.DO_HOST} "
+              plink -batch -ssh -i "${env.SSH_KEY_PATH}" ${env.DO_USER}@${env.DO_HOST} "
                 PID=\$(lsof -t -i:${env.PORT} || echo \"\")
                 if [ -n \"\$PID\" ]; then
                   kill -9 \$PID
@@ -77,12 +86,12 @@ pipeline {
             
             // Upload new build
             bat """
-              pscp -i "${env.SSH_KEY_PATH}" -r build ${env.DO_USER}@${env.DO_HOST}:${env.REMOTE_DIR}/
+              pscp -batch -i "${env.SSH_KEY_PATH}" -r build ${env.DO_USER}@${env.DO_HOST}:${env.REMOTE_DIR}/
             """
             
             // Start new server
             bat """
-              plink -i "${env.SSH_KEY_PATH}" -batch -ssh ${env.DO_USER}@${env.DO_HOST} "
+              plink -batch -ssh -i "${env.SSH_KEY_PATH}" ${env.DO_USER}@${env.DO_HOST} "
                 cd ${env.REMOTE_DIR}/build
                 nohup npx serve -s . -l ${env.PORT} > serve.log 2>&1 &
                 echo ✅ React app started on port ${env.PORT}.
@@ -91,7 +100,7 @@ pipeline {
           } catch (err) {
             // Rollback if deployment fails
             bat """
-              plink -i "${env.SSH_KEY_PATH}" -batch -ssh ${env.DO_USER}@${env.DO_HOST} "
+              plink -batch -ssh -i "${env.SSH_KEY_PATH}" ${env.DO_USER}@${env.DO_HOST} "
                 cd ${env.REMOTE_DIR}
                 if [ ! -d build ]; then
                   echo ❌ Deployment failed. Rolling back...

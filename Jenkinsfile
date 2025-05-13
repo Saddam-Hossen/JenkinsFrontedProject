@@ -11,6 +11,13 @@ pipeline {
   }
 
   stages {
+    stage('Checkout') {
+      steps {
+        echo 'Checking out code from Git repository...'
+        git branch: 'main', url: 'https://github.com/Saddam-Hossen/JenkinsFrontedProject'  // Make sure to replace this URL with your actual Git repository URL.
+      }
+    }
+
     stage('Install Dependencies') {
       agent {
         docker {

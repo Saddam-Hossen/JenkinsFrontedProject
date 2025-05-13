@@ -1,119 +1,114 @@
 pipeline {
-  agent any
+    agent { label 'windows' }
 
-  environment {
-    SSH_KEY_DIR = "${WORKSPACE}\\ssh_keys"
-    SSH_KEY_PATH = "${SSH_KEY_DIR}\\key.pem"
-    REMOTE_DIR = '/www/wwwroot/CITSNVN/itcrashcourse'
-    PORT = '3084'
-    DO_SSH_KEY = credentials('DO_SSH_KEY')
-    DO_USER = credentials('DO_USER')
-    DO_HOST = credentials('DO_HOST')
-  }
-
-  stages {
-    stage('Checkout') {
-      steps {
-        git branch: 'main', url: 'https://github.com/Saddam-Hossen/JenkinsFrontedProject'
-      }
+    environment {
+        NODE_VERSION = '22.13.1'
+        BUILD_DIR = 'build'
+        DEPLOY_DIR = '/www/wwwroot/CITSNVN/itcrashcourse'
+        SSH_KEY_PATH = 'C:\\Users\\01957\\.ssh\\key.pem'
+        KNOWN_HOSTS_PATH = 'C:\\Users\\01957\\.ssh\\known_hosts'
     }
 
-    stage('Install Dependencies') {
-      steps {
-        bat '''
-          npm ci
-          npm run lint || echo "ESLint completed with warnings"
-          CI=false npm run build
-        '''
-      }
-      post {
-        success {
-          archiveArtifacts artifacts: 'build/**', fingerprint: true
+    stages {
+        stage('Checkout Code') {
+            steps {
+                checkout scm
+            }
         }
-      }
-    }
 
-    stage('Prepare SSH') {
-      steps {
-        script {
-          // Create key directory
-          bat """
-            if not exist "${SSH_KEY_DIR}" mkdir "${SSH_KEY_DIR}"
-          """
-
-          // Save the SSH private key
-          writeFile file: "${env.SSH_KEY_PATH}", text: "${env.DO_SSH_KEY}"
-
-          // Set file permissions (OpenSSH requires limited access)
-          bat """
-            icacls "${SSH_KEY_PATH}" /inheritance:r
-            icacls "${SSH_KEY_PATH}" /grant:r "%USERNAME%":(R)
-            icacls "${SSH_KEY_PATH}" /grant:r "SYSTEM":(R)
-          """
-
-          // Add host to known_hosts
-          bat """
-            if not exist "%USERPROFILE%\\.ssh" mkdir "%USERPROFILE%\\.ssh"
-            ssh-keyscan -H %DO_HOST% >> "%USERPROFILE%\\.ssh\\known_hosts"
-          """
+        stage('Set up Node.js') {
+            steps {
+                bat """
+                nvm install %NODE_VERSION%
+                nvm use %NODE_VERSION%
+                node -v
+                npm -v
+                """
+            }
         }
-      }
-    }
 
-    stage('Deploy to DigitalOcean') {
-      steps {
-        script {
-          try {
-            // Test SSH connection
-            bat """
-              ssh -i "${SSH_KEY_PATH}" -o StrictHostKeyChecking=no %DO_USER%@%DO_HOST% "echo ✅ SSH connected."
-            """
-
-            // Kill existing process and backup old build
-            bat """
-              ssh -i "${SSH_KEY_PATH}" %DO_USER%@%DO_HOST% "
-                PID=\\$(lsof -t -i:%PORT% || echo \"\")
-                if [ -n \\\"\\$PID\\\" ]; then
-                  kill -9 \\$PID
-                  echo ✅ Process on port %PORT% killed.
-                else
-                  echo ⚠️ No process found on port %PORT%.
-                fi
-                cd %REMOTE_DIR%
-                rm -rf build.bak 2>/dev/null
-                mv build build.bak 2>/dev/null || echo No previous build to back up
-              "
-            """
-
-            // Upload new build using SCP
-            bat """
-              scp -i "${SSH_KEY_PATH}" -r build %DO_USER%@%DO_HOST%:%REMOTE_DIR%/
-            """
-
-            // Start React app
-            bat """
-              ssh -i "${SSH_KEY_PATH}" %DO_USER%@%DO_HOST% "
-                cd %REMOTE_DIR%/build
-                nohup npx serve -s . -l %PORT% > serve.log 2>&1 &
-                echo ✅ React app started on port %PORT%.
-              "
-            """
-          } catch (err) {
-            // Rollback on failure
-            bat """
-              ssh -i "${SSH_KEY_PATH}" %DO_USER%@%DO_HOST% "
-                cd %REMOTE_DIR%
-                if [ ! -d build ]; then
-                  echo ❌ Deployment failed. Rolling back...
-                  mv build.bak build
-                  echo 🔁 Rollback complete.
-                fi
-              "
-            """
-            error("🚨 Deployment failed: ${err.message}")
-          }
+        stage('Install Dependencies') {
+            steps {
+                bat 'npm ci'
+            }
         }
-      }
+
+        stage('Run ESLint') {
+            steps {
+                bat 'npm run lint || echo ESLint completed with warnings'
+            }
+        }
+
+        stage('Build React App') {
+            steps {
+                bat 'set CI=false && npm run build'
+            }
+        }
+
+        stage('Archive Build') {
+            steps {
+                archiveArtifacts artifacts: "${BUILD_DIR}/**", fingerprint: true
+            }
+        }
+
+        stage('Prepare SSH') {
+            steps {
+                bat """
+                if not exist %KNOWN_HOSTS_PATH% (
+                    echo Creating known_hosts file...
+                    ssh-keyscan -H %DO_HOST% >> %KNOWN_HOSTS_PATH%
+                )
+                """
+            }
+        }
+
+        stage('Deploy to Server') {
+            steps {
+                bat """
+                ssh -i %SSH_KEY_PATH% -o StrictHostKeyChecking=no -o UserKnownHostsFile=%KNOWN_HOSTS_PATH% %DO_USER%@%DO_HOST% ^
+                "PORT=3084 &&
+                 PID=\\$(lsof -t -i:\\$PORT) &&
+                 if [ ! -z \\"\\$PID\\" ]; then kill -9 \\$PID; fi &&
+                 cd ${DEPLOY_DIR} &&
+                 mv build build.bak || echo 'No backup needed'"
+                """
+
+                bat """
+                scp -i %SSH_KEY_PATH% -o StrictHostKeyChecking=no -o UserKnownHostsFile=%KNOWN_HOSTS_PATH% -r ${BUILD_DIR} %DO_USER%@%DO_HOST%:${DEPLOY_DIR}
+                """
+            }
+        }
+
+        stage('Start Server') {
+            steps {
+                bat """
+                ssh -i %SSH_KEY_PATH% -o StrictHostKeyChecking=no -o UserKnownHostsFile=%KNOWN_HOSTS_PATH% %DO_USER%@%DO_HOST% ^
+                "cd ${DEPLOY_DIR}/build &&
+                 nohup npx serve -s . -l 3084 > serve.log 2>&1 &"
+                """
+            }
+        }
+
+        stage('Rollback Logic') {
+            steps {
+                bat """
+                ssh -i %SSH_KEY_PATH% -o StrictHostKeyChecking=no -o UserKnownHostsFile=%KNOWN_HOSTS_PATH% %DO_USER%@%DO_HOST% ^
+                "cd ${DEPLOY_DIR} &&
+                 if [ ! -d build ]; then
+                   echo '❌ Deployment failed. Rolling back...' &&
+                   mv build.bak build &&
+                   echo '🔁 Rollback complete.'
+                 else
+                   echo '✅ Deployment successful.'
+                 fi"
+                """
+            }
+        }
     }
-  }
+
+    post {
+        always {
+            cleanWs()
+        }
+    }
 }

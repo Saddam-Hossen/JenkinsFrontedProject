@@ -2,7 +2,6 @@ pipeline {
   agent any
 
   environment {
-    // Use a temp directory that Jenkins can definitely write to
     SSH_KEY_DIR = "${WORKSPACE}\\ssh_keys"
     SSH_KEY_PATH = "${SSH_KEY_DIR}\\key.pem"
     REMOTE_DIR = '/www/wwwroot/CITSNVN/itcrashcourse'
@@ -37,26 +36,22 @@ pipeline {
     stage('Prepare SSH') {
       steps {
         script {
-          // Create a dedicated directory for SSH keys
+          // Create key directory
           bat """
             if not exist "${SSH_KEY_DIR}" mkdir "${SSH_KEY_DIR}"
           """
-          
-          // Write the SSH key file with proper permissions
+
+          // Save the SSH private key
+          writeFile file: "${env.SSH_KEY_PATH}", text: "${env.DO_SSH_KEY}"
+
+          // Set file permissions (OpenSSH requires limited access)
           bat """
-            echo Writing SSH key...
-            echo %DO_SSH_KEY% > "${SSH_KEY_PATH}"
-            
-            echo Setting permissions...
             icacls "${SSH_KEY_PATH}" /inheritance:r
-            icacls "${SSH_KEY_PATH}" /grant:r "%USERNAME%":(F)
-            icacls "${SSH_KEY_PATH}" /grant:r "SYSTEM":(F)
-            
-            echo Verifying permissions...
-            icacls "${SSH_KEY_PATH}"
+            icacls "${SSH_KEY_PATH}" /grant:r "%USERNAME%":(R)
+            icacls "${SSH_KEY_PATH}" /grant:r "SYSTEM":(R)
           """
-          
-          // Add host to known_hosts in user profile
+
+          // Add host to known_hosts
           bat """
             if not exist "%USERPROFILE%\\.ssh" mkdir "%USERPROFILE%\\.ssh"
             ssh-keyscan -H %DO_HOST% >> "%USERPROFILE%\\.ssh\\known_hosts"
@@ -69,17 +64,17 @@ pipeline {
       steps {
         script {
           try {
-            // Test SSH connection first
+            // Test SSH connection
             bat """
-              plink -batch -ssh -i "${SSH_KEY_PATH}" %DO_USER%@%DO_HOST% "echo SSH connection successful"
+              ssh -i "${SSH_KEY_PATH}" -o StrictHostKeyChecking=no %DO_USER%@%DO_HOST% "echo ✅ SSH connected."
             """
-            
-            // Kill existing process
+
+            // Kill existing process and backup old build
             bat """
-              plink -batch -ssh -i "${SSH_KEY_PATH}" %DO_USER%@%DO_HOST% "
-                PID=\$(lsof -t -i:%PORT% || echo \"\")
-                if [ -n \"\$PID\" ]; then
-                  kill -9 \$PID
+              ssh -i "${SSH_KEY_PATH}" %DO_USER%@%DO_HOST% "
+                PID=\\$(lsof -t -i:%PORT% || echo \"\")
+                if [ -n \\\"\\$PID\\\" ]; then
+                  kill -9 \\$PID
                   echo ✅ Process on port %PORT% killed.
                 else
                   echo ⚠️ No process found on port %PORT%.
@@ -89,24 +84,24 @@ pipeline {
                 mv build build.bak 2>/dev/null || echo No previous build to back up
               "
             """
-            
-            // Upload new build
+
+            // Upload new build using SCP
             bat """
-              pscp -batch -i "${SSH_KEY_PATH}" -r build %DO_USER%@%DO_HOST%:%REMOTE_DIR%/
+              scp -i "${SSH_KEY_PATH}" -r build %DO_USER%@%DO_HOST%:%REMOTE_DIR%/
             """
-            
-            // Start new server
+
+            // Start React app
             bat """
-              plink -batch -ssh -i "${SSH_KEY_PATH}" %DO_USER%@%DO_HOST% "
+              ssh -i "${SSH_KEY_PATH}" %DO_USER%@%DO_HOST% "
                 cd %REMOTE_DIR%/build
                 nohup npx serve -s . -l %PORT% > serve.log 2>&1 &
                 echo ✅ React app started on port %PORT%.
               "
             """
           } catch (err) {
-            // Rollback if deployment fails
+            // Rollback on failure
             bat """
-              plink -batch -ssh -i "${SSH_KEY_PATH}" %DO_USER%@%DO_HOST% "
+              ssh -i "${SSH_KEY_PATH}" %DO_USER%@%DO_HOST% "
                 cd %REMOTE_DIR%
                 if [ ! -d build ]; then
                   echo ❌ Deployment failed. Rolling back...
@@ -115,7 +110,7 @@ pipeline {
                 fi
               "
             """
-            error("Deployment failed: ${err.message}")
+            error("🚨 Deployment failed: ${err.message}")
           }
         }
       }

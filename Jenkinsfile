@@ -14,16 +14,11 @@ pipeline {
     stage('Checkout') {
       steps {
         echo 'Checking out code from Git repository...'
-        git branch: 'main', url: 'https://github.com/Saddam-Hossen/JenkinsFrontedProject'  // Make sure to replace this URL with your actual Git repository URL.
+        git branch: 'main', url: 'https://github.com/Saddam-Hossen/JenkinsFrontedProject'  // Replace with your actual Git repository URL
       }
     }
 
     stage('Install Dependencies') {
-      agent {
-        docker {
-          image 'node:22.13.1'
-        }
-      }
       steps {
         echo 'Installing dependencies...'
         sh '''
@@ -40,25 +35,21 @@ pipeline {
     }
 
     stage('Deploy to DigitalOcean') {
-      agent {
-        docker {
-          image 'alpine:latest'
-        }
-      }
       steps {
         echo 'Starting deployment to DigitalOcean...'
 
         sh '''
+          # Install necessary packages
           apk add --no-cache openssh lsof nodejs npm
 
+          # Setup SSH key
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-
           echo "$DO_SSH_KEY" | tr -d '\\r' > $SSH_KEY_PATH
           chmod 600 $SSH_KEY_PATH
-
           echo "$DO_HOST" | xargs -I {} ssh-keyscan -H {} >> ~/.ssh/known_hosts
 
+          # Kill any existing process on port $PORT
           echo "🔪 Killing process on port $PORT..."
           ssh -i $SSH_KEY_PATH -o StrictHostKeyChecking=no $DO_USER@$DO_HOST '
             PID=$(lsof -t -i:$PORT)
@@ -72,9 +63,11 @@ pipeline {
             mv build build.bak || echo "No previous build to back up"
           '
 
+          # Upload the new build
           echo "📤 Uploading new build..."
           scp -i $SSH_KEY_PATH -o StrictHostKeyChecking=no -r build $DO_USER@$DO_HOST:$REMOTE_DIR/
 
+          # Start the React app on DigitalOcean
           echo "🚀 Starting React app on port $PORT..."
           ssh -i $SSH_KEY_PATH -o StrictHostKeyChecking=no $DO_USER@$DO_HOST '
             cd $REMOTE_DIR/build
@@ -82,6 +75,7 @@ pipeline {
             echo "✅ React app started on port $PORT."
           '
 
+          # Rollback logic in case of failure
           echo "🔁 Rollback logic check..."
           ssh -i $SSH_KEY_PATH -o StrictHostKeyChecking=no $DO_USER@$DO_HOST '
             cd $REMOTE_DIR

@@ -2,7 +2,8 @@ pipeline {
   agent any
 
   environment {
-    SSH_KEY_PATH = '${WORKSPACE}/key.pem'
+    // Use forward slashes for Windows compatibility
+    SSH_KEY_PATH = "${WORKSPACE}\\key.pem"
     REMOTE_DIR = '/www/wwwroot/CITSNVN/itcrashcourse'
     PORT = '3084'
     DO_SSH_KEY = credentials('DO_SSH_KEY')
@@ -19,7 +20,7 @@ pipeline {
 
     stage('Install Dependencies') {
       steps {
-        sh '''
+        bat '''
           npm ci
           npm run lint || echo "ESLint completed with warnings"
           CI=false npm run build
@@ -34,19 +35,23 @@ pipeline {
 
     stage('Prepare SSH') {
       steps {
-        sh '''
-          # Create SSH directory and key file with proper permissions
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-          echo "$DO_SSH_KEY" > "$SSH_KEY_PATH"
-          chmod 600 "$SSH_KEY_PATH"
+        script {
+          // Write the SSH key file
+          writeFile file: env.SSH_KEY_PATH, text: env.DO_SSH_KEY
           
-          # Verify key file format (convert if needed)
-          ssh-keygen -p -f "$SSH_KEY_PATH" -m pem -N "" || true
+          // Set proper permissions (may not work perfectly on Windows)
+          bat """
+            icacls "${env.SSH_KEY_PATH}" /inheritance:r
+            icacls "${env.SSH_KEY_PATH}" /grant:r "%USERNAME%":(R)
+            icacls "${env.SSH_KEY_PATH}" /grant:r "SYSTEM":(R)
+          """
           
-          # Add host to known_hosts
-          ssh-keyscan -H "$DO_HOST" >> ~/.ssh/known_hosts
-        '''
+          // Add host to known_hosts
+          bat """
+            mkdir "%USERPROFILE%\\.ssh" 2>nul
+            ssh-keyscan -H ${env.DO_HOST} >> "%USERPROFILE%\\.ssh\\known_hosts"
+          """
+        }
       }
     }
 
@@ -55,45 +60,45 @@ pipeline {
         script {
           try {
             // Kill existing process
-            sh """
-              ssh -i "$SSH_KEY_PATH" -o StrictHostKeyChecking=no "$DO_USER@$DO_HOST" '
-                PID=\$(lsof -t -i:$PORT || echo "")
-                if [ -n "\$PID" ]; then
+            bat """
+              plink -i "${env.SSH_KEY_PATH}" -batch -ssh ${env.DO_USER}@${env.DO_HOST} "
+                PID=\$(lsof -t -i:${env.PORT} || echo \"\")
+                if [ -n \"\$PID\" ]; then
                   kill -9 \$PID
-                  echo "✅ Process on port $PORT killed."
+                  echo ✅ Process on port ${env.PORT} killed.
                 else
-                  echo "⚠️ No process found on port $PORT."
+                  echo ⚠️ No process found on port ${env.PORT}.
                 fi
-                cd "$REMOTE_DIR"
+                cd ${env.REMOTE_DIR}
                 rm -rf build.bak 2>/dev/null
-                mv build build.bak 2>/dev/null || echo "No previous build to back up"
-              '
+                mv build build.bak 2>/dev/null || echo No previous build to back up
+              "
             """
             
             // Upload new build
-            sh """
-              scp -i "$SSH_KEY_PATH" -o StrictHostKeyChecking=no -r build "$DO_USER@$DO_HOST:$REMOTE_DIR/"
+            bat """
+              pscp -i "${env.SSH_KEY_PATH}" -r build ${env.DO_USER}@${env.DO_HOST}:${env.REMOTE_DIR}/
             """
             
             // Start new server
-            sh """
-              ssh -i "$SSH_KEY_PATH" -o StrictHostKeyChecking=no "$DO_USER@$DO_HOST" '
-                cd "$REMOTE_DIR/build"
-                nohup npx serve -s . -l $PORT > serve.log 2>&1 &
-                echo "✅ React app started on port $PORT."
-              '
+            bat """
+              plink -i "${env.SSH_KEY_PATH}" -batch -ssh ${env.DO_USER}@${env.DO_HOST} "
+                cd ${env.REMOTE_DIR}/build
+                nohup npx serve -s . -l ${env.PORT} > serve.log 2>&1 &
+                echo ✅ React app started on port ${env.PORT}.
+              "
             """
           } catch (err) {
             // Rollback if deployment fails
-            sh """
-              ssh -i "$SSH_KEY_PATH" -o StrictHostKeyChecking=no "$DO_USER@$DO_HOST" '
-                cd "$REMOTE_DIR"
+            bat """
+              plink -i "${env.SSH_KEY_PATH}" -batch -ssh ${env.DO_USER}@${env.DO_HOST} "
+                cd ${env.REMOTE_DIR}
                 if [ ! -d build ]; then
-                  echo "❌ Deployment failed. Rolling back..."
+                  echo ❌ Deployment failed. Rolling back...
                   mv build.bak build
-                  echo "🔁 Rollback complete."
+                  echo 🔁 Rollback complete.
                 fi
-              '
+              "
             """
             error("Deployment failed: ${err.message}")
           }

@@ -1,0 +1,56 @@
+
+/* Fixed Navbar */
+.navbar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    z-index: 1050; /* Ensure it's above other elements */
+  }
+/* Ensure the sub-navbar appears on hover and takes full width */
+.nav-item.dropdown {
+    position: relative; /* To position the dropdown correctly */
+  }
+  
+  .nav-item.dropdown:hover .dropdown-menu {
+    display: block; /* Show the dropdown on hover */
+  }
+  
+  .dropdown-menu {
+    display: none; /* Hide dropdown by default */
+    position: absolute; /* Position it below the parent item */
+    left: 0; /* Align it to the left of the parent */
+    top: 100%; /* Position it just below the "Services" item */
+    width: 100%; /* Ensure it takes the full width of the navbar */
+    background-color: #f8f9fa; /* Background color */
+    border: 1px solid #ddd; /* Border styling */
+    border-radius: 0.25rem; /* Border radius */
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2); /* Drop shadow */
+    z-index: 1000; /* Make sure it's on top */
+  }
+  
+  /* Style the second-level dropdowns */
+  .dropdown-menu > .dropdown-item {
+    width: 33.33%; /* Split the sub-navbars into 3 equal parts */
+    display: inline-block;
+  }
+  
+  /* To align the second dropdowns horizontally */
+  .nav-item.dropdown:hover .dropdown-menu .dropdown-item {
+    display: inline-block; /* Make them inline to display next to each other */
+    width: auto;
+  }
+  
+  .table-responsive {
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+  th, td {
+    text-align: center;
+  }
+
+  .partially-unselected {
+    background-color: rgba(255, 165, 0, 0.2); /* Light orange */
+    border-left: 4px solid orange;
+  }
+  

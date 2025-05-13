@@ -1,0 +1,138 @@
+/* App.css */
+
+body.dark-theme {
+    background-color: #343541 !important;
+    color: #ececf1 !important;
+  }
+  
+  body.dark-theme td,
+  body.dark-theme th {
+    background-color: #343541 !important;
+    color: #ececf1 !important;
+  }
+  
+  body.dark-theme a {
+    color: #ececf1 !important;
+  }
+  
+  body.light-theme {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+  }
+  
+  body.light-theme td,
+  body.light-theme th {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+  }
+  
+  body.light-theme a {
+    color: #000000 !important;
+  }
+  
+  /* Custom list item styles */
+  .custom-list-item {
+    background-color: transparent;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+  }
+  
+  body.dark-theme .custom-list-item {
+    color: #ececf1;
+  }
+  
+  body.dark-theme .custom-list-item:hover {
+    background-color: #565869;
+  }
+  
+  body.light-theme .custom-list-item {
+    color: #000000;
+  }
+  
+  body.light-theme .custom-list-item:hover {
+    background-color: #e0e0e0;
+  }
+  
+  .custom-link {
+    color: inherit;
+    text-decoration: none;
+    display: block;
+  }
+  
+
+  /* Modal Title and Label Styles */
+
+body.dark-theme .modal-title,
+body.dark-theme .form-label {
+  color: #ececf1 !important;
+}
+
+body.light-theme .modal-title,
+body.light-theme .form-label {
+  color: #000000 !important;
+}
+
+/* Optional: Modal background color */
+body.dark-theme .modal-content {
+  background-color: #444654 !important;
+  color: #ececf1 !important;
+}
+
+body.light-theme .modal-content {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+}
+
+/* Optional: Input field background for consistency */
+body.dark-theme .form-control {
+  background-color: #3c3f4a !important;
+  color: #ececf1 !important;
+  border: 1px solid #5a5a5a !important;
+}
+
+body.light-theme .form-control {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+  border: 1px solid #ced4da !important;
+}
+
+/* Placeholder styles for dark theme */
+body.dark-theme ::placeholder {
+    color: #b0b0b0 !important; /* Light gray for readability */
+    opacity: 1 !important;     /* Make sure it's fully visible */
+  }
+  
+  /* Placeholder styles for light theme */
+  body.light-theme ::placeholder {
+    color: #6c757d !important; /* Bootstrap default gray */
+    opacity: 1 !important;
+  }
+
+ /* Google Translate Widget Customization */ 
+  /* Optional: Hide the small Google branding if needed */
+  .goog-logo-link,
+  .goog-te-gadget span {
+    display: none !important;
+  }
+  
+  /* Dropdown appearance (leave this visible) */
+  .goog-te-gadget-simple {
+    background-color: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    align-items: flex-start !important;
+  }
+ 
+  .VIpgJd-ZVi9od-ORHb-OEVmcd{
+    display: none !important; /* Hide the Google Translate top banner */
+  }
+
+@media (max-width: 768px) {
+    .globalDiv {
+        margin-top: 30px;
+    }
+}
+  
+  
+  
+  

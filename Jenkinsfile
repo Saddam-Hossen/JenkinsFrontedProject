@@ -80,25 +80,7 @@ pipeline {
             }
         }
         
-        stage('Deploy (Optional)') {
-            when {
-                branch 'main'  // Only deploy from main branch
-            }
-            steps {
-                script {
-                    // Example: Deploy to AWS S3
-                    // withAWS(credentials: 'aws-credentials') {
-                    //     sh 'aws s3 sync build/ s3://your-bucket-name --delete'
-                    // }
-                    
-                    // Example: Deploy to Netlify
-                    // sh 'npm install -g netlify-cli'
-                    // withCredentials([string(credentialsId: 'netlify-auth-token', variable: 'NETLIFY_AUTH_TOKEN')]) {
-                    //     sh 'netlify deploy --prod --dir=build'
-                    // }
-                }
-            }
-        }
+        
     }
     
     post {

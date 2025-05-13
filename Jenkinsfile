@@ -1,85 +1,130 @@
 pipeline {
-  agent any
-
-  environment {
-    SSH_KEY_PATH = "${WORKSPACE}/key.pem"
-    REMOTE_DIR = '/www/wwwroot/CITSNVN/itcrashcourse'
-    PORT = '3084'
-    DO_SSH_KEY = credentials('DO_SSH_KEY')
-    DO_USER = credentials('DO_USER')
-    DO_HOST = credentials('DO_HOST')
-  }
-
-  stages {
-    stage('Checkout') {
-      steps {
-        git branch: 'main', url: 'https://github.com/Saddam-Hossen/JenkinsFrontedProject'
-      }
+    agent any
+    
+    environment {
+        NODE_VERSION = '22.14.0'  // Matches your Node version
+        CI = 'true'               // Ensures React runs in CI mode
     }
-
-    stage('Install Dependencies') {
-      steps {
-        bat '''
-          npm ci
-          npm run lint || echo "ESLint completed with warnings"
-          set CI=false
-          npm run build
-        '''
-      }
-      post {
+    
+    options {
+        timeout(time: 30, unit: 'MINUTES')
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+        
+        stage('Setup Node.js v22.14.0') {
+            steps {
+                script {
+                    // Verify Node.js is installed (alternative to using Jenkins NodeJS plugin)
+                    sh '''
+                        node -v
+                        npm -v
+                    '''
+                    
+                    // If you need to ensure specific version
+                    sh 'nvm use 22.14.0 || nvm install 22.14.0'
+                }
+            }
+        }
+        
+        stage('Install Dependencies') {
+            steps {
+                sh 'npm ci --no-audit'  // Clean install with no audit (faster)
+                sh 'npm cache verify'    // Verify cache integrity
+            }
+        }
+        
+        stage('Security Audit') {
+            steps {
+                sh 'npm audit --omit=dev'  // Check for vulnerabilities (optional)
+            }
+        }
+        
+        stage('Lint') {
+            steps {
+                sh 'npm run lint'  // If you have ESLint/Prettier setup
+            }
+        }
+        
+        stage('Unit Tests') {
+            steps {
+                sh 'npm test -- --watchAll=false --coverage'
+                junit 'junit.xml'  // If your tests generate JUnit reports
+                // For Jest coverage reports:
+                publishHTML(target: [
+                    allowMissing: false,
+                    alwaysLinkToLastBuild: false,
+                    keepAll: false,
+                    reportDir: 'coverage/lcov-report',
+                    reportFiles: 'index.html',
+                    reportName: 'Jest Coverage Report'
+                ])
+            }
+        }
+        
+        stage('Build Production') {
+            steps {
+                sh 'npm run build'
+                
+                // Verify build output
+                sh 'ls -la build/'
+                
+                // Archive artifacts
+                archiveArtifacts artifacts: 'build/**/*', fingerprint: true
+            }
+        }
+        
+        stage('Deploy (Optional)') {
+            when {
+                branch 'main'  // Only deploy from main branch
+            }
+            steps {
+                script {
+                    // Example: Deploy to AWS S3
+                    // withAWS(credentials: 'aws-credentials') {
+                    //     sh 'aws s3 sync build/ s3://your-bucket-name --delete'
+                    // }
+                    
+                    // Example: Deploy to Netlify
+                    // sh 'npm install -g netlify-cli'
+                    // withCredentials([string(credentialsId: 'netlify-auth-token', variable: 'NETLIFY_AUTH_TOKEN')]) {
+                    //     sh 'netlify deploy --prod --dir=build'
+                    // }
+                }
+            }
+        }
+    }
+    
+    post {
         success {
-          archiveArtifacts artifacts: 'build/**', fingerprint: true
+            // Optional notifications
+            slackSend(color: 'good', message: "✅ Build Successful: ${env.JOB_NAME} #${env.BUILD_NUMBER}")
+            emailext(
+                subject: "SUCCESS: Job '${env.JOB_NAME}' (${env.BUILD_NUMBER})",
+                body: "Build successful!\nCheck console output at ${env.BUILD_URL}",
+                to: 'dev-team@example.com'
+            )
         }
-      }
-    }
-
-    stage('Prepare SSH Key') {
-      steps {
-        script {
-          writeFile file: env.SSH_KEY_PATH, text: env.DO_SSH_KEY
-
-          // Set appropriate permissions on the SSH key
-          bat """
-            icacls "${env.SSH_KEY_PATH}" /inheritance:r
-            icacls "${env.SSH_KEY_PATH}" /grant:r "%USERNAME%":(R)
-            icacls "${env.SSH_KEY_PATH}" /grant:r "SYSTEM":(R)
-          """
+        failure {
+            slackSend(color: 'danger', message: "❌ Build Failed: ${env.JOB_NAME} #${env.BUILD_NUMBER}")
+            emailext(
+                subject: "FAILED: Job '${env.JOB_NAME}' (${env.BUILD_NUMBER})",
+                body: "Build failed!\nCheck console output at ${env.BUILD_URL}",
+                to: 'dev-team@example.com'
+            )
         }
-      }
-    }
-
-    stage('Deploy to DigitalOcean') {
-      steps {
-        script {
-          try {
-            // Kill existing process & backup previous build
-            bat """
-              ssh -i "${env.SSH_KEY_PATH}" -o StrictHostKeyChecking=no ${env.DO_USER}@${env.DO_HOST} ^
-              "PID=\\$(lsof -t -i:${env.PORT} || echo '') && ^
-              if [ ! -z \\"\\$PID\\" ]; then kill -9 \\$PID; fi && ^
-              cd ${env.REMOTE_DIR} && rm -rf build.bak && mv build build.bak || echo No previous build"
-            """
-
-            // Upload new build using SCP
-            bat """
-              scp -i "${env.SSH_KEY_PATH}" -r build ${env.DO_USER}@${env.DO_HOST}:${env.REMOTE_DIR}/
-            """
-
-            // Start the React app on remote server
-            bat """
-              ssh -i "${env.SSH_KEY_PATH}" -o StrictHostKeyChecking=no ${env.DO_USER}@${env.DO_HOST} ^
-              "cd ${env.REMOTE_DIR}/build && nohup npx serve -s . -l ${env.PORT} > serve.log 2>&1 &"
-            """
-          } catch (err) {
-            // Rollback if deployment fails
-            bat """
-              ssh -i "${env.SSH_KEY_PATH}" -o StrictHostKeyChecking=no ${env.DO_USER}@${env.DO_HOST} ^
-              "cd ${env.REMOTE_DIR} && if [ ! -d build ]; then echo Rolling back... && mv build.bak build; fi"
-            """
-            error("Deployment failed: ${err.message}")
-          }
+        always {
+            cleanWs()
+            script {
+                // Clean up node_modules to save disk space
+                sh 'rm -rf node_modules/'
+            }
         }
-      }
     }
-  }
 }
